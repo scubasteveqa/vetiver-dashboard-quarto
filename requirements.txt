@@ -1,0 +1,9 @@
+vetiver
+pins
+itables
+pandas
+plotly
+ipython
+scikit-learn
+aiohttp
+pyarrow

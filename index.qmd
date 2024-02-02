@@ -1,0 +1,130 @@
+---
+title: "Chicago restaurant violations"
+format: 
+  dashboard:
+    theme: lux
+logo: https://github.com/rstudio/vetiver-python/blob/main/docs/figures/logo.png?raw=true
+---
+
+```{python}
+#| tags: [parameters]
+
+# import model and metadata 
+import pins
+from IPython.display import display, Markdown, IFrame
+from datetime import datetime, timedelta
+import pandas as pd
+import plotly.express as px
+from sklearn import metrics
+from vetiver import VetiverModel, compute_metrics, plot_metrics
+from sklearn.metrics import recall_score, accuracy_score
+
+raw = "https://colorado.rstudio.com/rsc"
+paths = {"chicago-model-python": "chicago-model-python/"}
+board = pins.board_url(raw, paths, allow_pickle_read=True)
+v = VetiverModel.from_pin(board, "chicago-model-python")
+v_meta = board.pin_meta("chicago-model-python")
+days_old = datetime.today() - datetime.strptime(v_meta.created, "%Y%m%dT%H%M%SZ")
+```
+
+```{python}
+# import new data to track performance over time
+raw = "https://colorado.rstudio.com/rsc"
+paths = {"new-data": "inspections-new-data/"}
+board = pins.board_url(raw, paths, allow_pickle_read=True)
+inspections_new = board.pin_read("new-data")
+
+inspections_new["preds"] = v.model.predict(
+    inspections_new.drop(columns=["results", "aka_name", "inspection_date"])
+)
+
+inspections_new["preds"] = inspections_new["preds"].map({"PASS": 0, "FAIL": 1})
+inspections_new["results"] = inspections_new["results"].map({"PASS": 0, "FAIL": 1})
+```
+
+# Model card
+
+## Row 
+
+::: {.valuebox color="info"}
+`{python} v.description`
+
+`{python} v.model_name`
+:::
+
+::: {.valuebox color="success"}
+Model age
+
+`{python} days_old.days` days old
+:::
+
+## Row
+
+Model details
+
+- The city of Chicago offers access to health code inspections of restaurants, available from the [Chicago Department of Public Health](https://data.cityofchicago.org/). This model looks to predict inspection outcome from ` `{python} list(v.prototype.construct().dict().keys())` ` features.
+- The model deployed is a `scikit-learn` Pipeline involving an encoder for categorical variables and a RandomForestClassifier to make predictions.
+
+Intended use
+
+- The primary intended users of this model are people who are interested in health inspection data from Chicago
+- Some use cases are out of scope for this model, such as using this model for real world health inspection prediction
+
+Training data & evaluation data
+
+- The training dataset for this model has the prototype:
+```
+`{python} v.prototype.construct().schema().get("properties")`
+```
+
+Ethical considerations
+
+- This model does not have personal data and is not used for production. However, health inspections have other inputs that affect failure that are not tracked in this model that should be taken into account for production use cases.
+
+Caveats & recommendations
+
+- This model does show real world health inspection data for the city of Chicago.
+- This model was not made with the intention of creating the best model possible, but rather, is best used for exploration of data and the tools used to create this dashboard.
+
+# Model performance
+
+Model performance over time. In this context, _performance_ is the statistical properties of the model, specifically, accuracy and recall. The data is grouped by week, starting in January of 2023 until July of 2023.
+
+```{python}
+import itables
+
+td = timedelta(weeks = 4)
+metric_set = [accuracy_score, recall_score]
+
+metrics_df = compute_metrics(
+    data = inspections_new,
+    date_var = "inspection_date", 
+    period = td,
+    metric_set = metric_set,
+    truth = "results",
+    estimate = "preds"
+  )
+itables.show(metrics_df)
+```
+
+```{python}
+plot_metrics(metrics_df).show()
+```
+
+
+# Misclassified results
+
+Inspections that our model misclassified, in either direction.
+
+```{python}
+bad_pred = inspections_new.loc[(inspections_new['preds'] != inspections_new['results'])].reset_index()
+
+itables.show(bad_pred[["results", "preds", "facility_type", "risk", "aka_name", "inspection_date"]])
+```
+
+
+```{python}
+px.histogram(bad_pred, x = "month", color="facility_type", title = "Misclassified inspections per month by facility type")
+```
+
+
